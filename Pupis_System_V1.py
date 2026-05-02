@@ -7,7 +7,6 @@ import os
 
 # --- 1. SETUP ---
 st.set_page_config(page_title="Pupis Manager", layout="wide")
-
 st.markdown("""
     <style>
     .stApp { background-color: #FFFDF5; }
@@ -16,13 +15,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Fungsi untuk mendapatkan Hari dalam Bahasa Indonesia
-def get_hari_indo():
-    hari_dict = {"Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu", "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"}
-    day_en = datetime.now().strftime("%A")
-    return hari_dict.get(day_en, day_en)
-
-# --- 2. DATABASE ---
 FILE_JUAL = "db_penjualan.csv"
 FILE_KELUAR = "db_pengeluaran.csv"
 
@@ -42,13 +34,13 @@ MINUMAN = {
     "Sunny Milkult": 15000, "Greeny Milkult": 15000
 }
 
-# --- 3. HEADER & SIDEBAR ---
+# --- 2. HEADER & SIDEBAR ---
 st.title("🍌 PUPIS - Dapur Pisang")
 modal_awal = st.sidebar.number_input("💰 Modal Awal Kas (Hari Ini)", value=0, step=1000)
 
 tab1, tab2, tab3, tab4 = st.tabs(["🛒 Kasir Digital", "💸 Uang Keluar", "📊 Ringkasan Laporan", "📂 Ekspor Excel"])
 
-# --- 4. TAB KASIR ---
+# --- 3. TAB KASIR (Input + Riwayat + Hapus) ---
 with tab1:
     st.header("Catat Penjualan")
     with st.form("form_jual", clear_on_submit=True):
@@ -56,7 +48,6 @@ with tab1:
         pilihan_makanan = col1.selectbox("Makanan", ["-"] + list(MAKANAN.keys()))
         pilihan_minuman = col2.selectbox("Minuman", ["-"] + list(MINUMAN.keys()))
         qty = st.number_input("Jumlah Porsi", min_value=1, value=1)
-        st.write("---")
         nama_topping = st.text_input("Nama Topping (isi '-' jika tidak ada)")
         harga_topping = st.number_input("Harga Topping (per porsi)", min_value=0, step=1000)
         
@@ -68,15 +59,27 @@ with tab1:
                 total_harga = (harga_dasar + harga_topping) * qty
                 catatan = f"{item_dipilih} + {nama_topping}" if nama_topping != "-" else item_dipilih
                 
-                # Menambah kolom Hari dan Tanggal
-                df = load_csv(FILE_JUAL, ["Hari", "Tanggal", "Menu", "Jumlah", "Total"])
-                new_data = pd.DataFrame([[get_hari_indo(), datetime.now().strftime("%Y-%m-%d"), catatan, qty, total_harga]], columns=df.columns)
+                df = load_csv(FILE_JUAL, ["Tanggal", "Menu", "Jumlah", "Total"])
+                new_data = pd.DataFrame([[datetime.now().strftime("%Y-%m-%d"), catatan, qty, total_harga]], columns=df.columns)
                 pd.concat([df, new_data]).to_csv(FILE_JUAL, index=False)
-                st.success(f"✅ Berhasil dicatat: {catatan} x{qty} = Rp {total_harga:,}")
+                st.success(f"✅ Berhasil dicatat: {catatan} x{qty}")
             else:
                 st.error("Silakan pilih minimal satu menu!")
 
-# --- 5. TAB PENGELUARAN ---
+    st.write("---")
+    st.subheader("Riwayat Transaksi (Untuk Koreksi)")
+    df_j = load_csv(FILE_JUAL, ["Tanggal", "Menu", "Jumlah", "Total"])
+    if not df_j.empty:
+        st.dataframe(df_j)
+        index_hapus = st.number_input("Masukkan nomor baris (index) yang ingin dihapus:", min_value=0, max_value=len(df_j)-1, step=1)
+        if st.button("Hapus Transaksi Terpilih"):
+            df_j = df_j.drop(index_hapus).reset_index(drop=True)
+            df_j.to_csv(FILE_JUAL, index=False)
+            st.rerun()
+    else:
+        st.info("Belum ada data penjualan.")
+
+# --- 4. TAB PENGELUARAN ---
 with tab2:
     st.header("Catat Uang Keluar (Belanja)")
     with st.form("form_keluar", clear_on_submit=True):
@@ -87,31 +90,37 @@ with tab2:
         
         if st.form_submit_button("Catat Pengeluaran"):
             total_keluar = qty_beli * harga_satuan
-            df = load_csv(FILE_KELUAR, ["Hari", "Tanggal", "Keterangan", "Total"])
-            new_data = pd.DataFrame([[get_hari_indo(), datetime.now().strftime("%Y-%m-%d"), f"{item_beli} (x{qty_beli})", total_keluar]], columns=df.columns)
+            df = load_csv(FILE_KELUAR, ["Tanggal", "Keterangan", "Total"])
+            new_data = pd.DataFrame([[datetime.now().strftime("%Y-%m-%d"), f"{item_beli} (x{qty_beli})", total_keluar]], columns=df.columns)
             pd.concat([df, new_data]).to_csv(FILE_KELUAR, index=False)
-            st.warning(f"⚠️ Pengeluaran {item_beli} x{qty_beli} tercatat sebesar Rp {total_keluar:,}")
+            st.warning(f"⚠️ Pengeluaran {item_beli} tercatat.")
 
-# --- 6. TAB LAPORAN ---
+# --- 5. TAB LAPORAN (Grafik) ---
 with tab3:
     st.header("Ringkasan Laporan")
-    df_j = load_csv(FILE_JUAL, ["Hari", "Tanggal", "Menu", "Jumlah", "Total"])
-    df_k = load_csv(FILE_KELUAR, ["Hari", "Tanggal", "Keterangan", "Total"])
+    df_j = load_csv(FILE_JUAL, ["Tanggal", "Menu", "Jumlah", "Total"])
+    df_k = load_csv(FILE_KELUAR, ["Tanggal", "Keterangan", "Total"])
     
-    total_masuk = df_j['Total'].sum() if not df_j.empty else 0
-    total_keluar = df_k['Total'].sum() if not df_k.empty else 0
-    sisa_uang = (modal_awal + total_masuk) - total_keluar
+    omzet = df_j['Total'].sum() if not df_j.empty else 0
+    beban = df_k['Total'].sum() if not df_k.empty else 0
     
     col1, col2, col3 = st.columns(3)
-    col1.metric("Omzet", f"Rp {total_masuk:,}")
-    col2.metric("Sisa Uang di Tangan", f"Rp {sisa_uang:,}")
-    col3.metric("Profit Bersih", f"Rp {total_masuk - total_keluar:,}")
+    col1.metric("Omzet", f"Rp {omzet:,}")
+    col2.metric("Sisa Uang (Kas)", f"Rp {(modal_awal + omzet) - beban:,}")
+    col3.metric("Profit", f"Rp {omzet - beban:,}")
+    
+    if not df_j.empty:
+        st.subheader("Grafik Penjualan")
+        fig = px.bar(df_j.groupby("Menu")["Total"].sum().reset_index(), x="Menu", y="Total", color_discrete_sequence=['#F6BC25'])
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.write("Belum ada data untuk ditampilkan di grafik.")
 
-# --- 7. TAB EXCEL ---
+# --- 6. TAB EXCEL ---
 with tab4:
     if st.button("Generate Master Excel"):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            load_csv(FILE_JUAL, []).to_excel(writer, sheet_name='Data Penjualan', index=False)
-            load_csv(FILE_KELUAR, []).to_excel(writer, sheet_name='Data Pengeluaran', index=False)
-        st.download_button("📥 Download Laporan", data=output.getvalue(), file_name="Laporan_Pupis_Master.xlsx")
+            load_csv(FILE_JUAL, []).to_excel(writer, sheet_name='Penjualan', index=False)
+            load_csv(FILE_KELUAR, []).to_excel(writer, sheet_name='Pengeluaran', index=False)
+        st.download_button("📥 Download Laporan", data=output.getvalue(), file_name="Laporan_Pupis.xlsx")
