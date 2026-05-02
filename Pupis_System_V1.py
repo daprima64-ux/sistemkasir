@@ -5,32 +5,24 @@ from datetime import datetime
 import io
 import os
 
-# --- KONFIGURASI TEMA & DESAIN ---
+# --- 1. SETUP ---
 st.set_page_config(page_title="Pupis Manager", layout="wide")
 
-# CSS untuk mempercantik tampilan
 st.markdown("""
     <style>
     .stApp { background-color: #FFFDF5; }
-    .stButton>button { 
-        background-color: #F6BC25; 
-        color: #5F3C2B; 
-        border-radius: 10px; 
-        font-weight: bold;
-        border: 2px solid #5F3C2B;
-    }
-    .stMetric { 
-        background-color: #ffffff; 
-        padding: 20px; 
-        border-radius: 15px; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        border-left: 5px solid #F6BC25;
-    }
-    h1, h2, h3 { color: #5F3C2B !important; font-family: 'Arial'; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #F6BC25; }
+    h1, h2, h3 { color: #5F3C2B !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- DATABASE ---
+# Fungsi untuk mendapatkan Hari dalam Bahasa Indonesia
+def get_hari_indo():
+    hari_dict = {"Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu", "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"}
+    day_en = datetime.now().strftime("%A")
+    return hari_dict.get(day_en, day_en)
+
+# --- 2. DATABASE ---
 FILE_JUAL = "db_penjualan.csv"
 FILE_KELUAR = "db_pengeluaran.csv"
 
@@ -38,76 +30,88 @@ def load_csv(file, cols):
     if not os.path.exists(file): return pd.DataFrame(columns=cols)
     return pd.read_csv(file)
 
-# --- DATA MENU ---
-SEMUA_MENU = {
+MAKANAN = {
     "Pisang Wijen (Original)": 15000, "Pisang Wijen (Taro)": 15000, "Pisang Wijen (Tiramisu)": 15000,
     "Pisang Wijen (Coklat)": 15000, "Pisang Wijen (Strawberry)": 15000, "Pisang Wijen (Matcha)": 15000,
     "Pisang Wijen (Cappucino)": 15000, "Nasi Ayam Popcorn Matah": 18000, 
     "Mie Ayam Popcorn Matah": 18000, "Nasi Telor Sambal Matah": 15000,
-    "Hekeng KW": 15000, "Pempek": 15000, "Kentang Goreng": 15000,
-    "Lemon Tea": 8000, "Coklat": 10000, "Matcha": 10000, "Tiramisu": 10000,
+    "Hekeng KW": 15000, "Pempek": 15000, "Kentang Goreng": 15000
+}
+MINUMAN = {
+    "Lemon Tea": 8000, "Coklat": 10000, "Matcha": 10000, "Tiramisu": 10000, 
     "Sunny Milkult": 15000, "Greeny Milkult": 15000
 }
 
-# --- HEADER ---
+# --- 3. HEADER & SIDEBAR ---
 st.title("🍌 PUPIS - Dapur Pisang")
-st.write("Sistem Kasir & Manajemen Keuangan Digital")
+modal_awal = st.sidebar.number_input("💰 Modal Awal Kas (Hari Ini)", value=0, step=1000)
 
-tab1, tab2, tab3, tab4 = st.tabs(["🛒 Kasir Digital", "💸 Catat Pengeluaran", "📈 Analisis Profit", "📂 Laporan Excel"])
+tab1, tab2, tab3, tab4 = st.tabs(["🛒 Kasir Digital", "💸 Uang Keluar", "📊 Ringkasan Laporan", "📂 Ekspor Excel"])
 
-# 1. KASIR
+# --- 4. TAB KASIR ---
 with tab1:
-    col_in1, col_in2 = st.columns(2)
-    with col_in1:
-        with st.form("kasir_form", clear_on_submit=True):
-            st.subheader("Input Pesanan")
-            menu = st.selectbox("Menu", list(SEMUA_MENU.keys()))
-            jml = st.number_input("Jumlah Porsi", min_value=1, value=1)
-            top = st.number_input("Tambahan Topping (Rp)", min_value=0, step=1000)
-            if st.form_submit_button("Selesaikan Transaksi"):
-                total = (SEMUA_MENU[menu] * jml) + top
-                df = load_csv(FILE_JUAL, ["Tanggal", "Menu", "Jumlah", "Total"])
-                new_data = pd.DataFrame([[datetime.now().strftime("%Y-%m-%d"), menu, jml, total]], columns=df.columns)
-                pd.concat([df, new_data]).to_csv(FILE_JUAL, index=False)
-                st.balloons()
-                st.success(f"Berhasil dicatat: Rp {total:,}")
-
-# 2. PENGELUARAN
-with tab2:
-    with st.form("keluar_form", clear_on_submit=True):
-        st.subheader("Catat Pengeluaran")
-        ket = st.text_input("Keterangan (misal: Beli Pisang, Gas, Plastik)")
-        nom = st.number_input("Nominal Pengeluaran (Rp)", min_value=0, step=5000)
-        if st.form_submit_button("Simpan Biaya"):
-            df = load_csv(FILE_KELUAR, ["Tanggal", "Keterangan", "Total"])
-            new_data = pd.DataFrame([[datetime.now().strftime("%Y-%m-%d"), ket, nom]], columns=df.columns)
-            pd.concat([df, new_data]).to_csv(FILE_KELUAR, index=False)
-            st.success("Biaya berhasil dicatat!")
-
-# 3. PROFIT
-with tab3:
-    df_j = load_csv(FILE_JUAL, ["Tanggal", "Menu", "Jumlah", "Total"])
-    df_k = load_csv(FILE_KELUAR, ["Tanggal", "Keterangan", "Total"])
-    
-    c1, c2, c3 = st.columns(3)
-    omzet = df_j['Total'].sum() if not df_j.empty else 0
-    beban = df_k['Total'].sum() if not df_k.empty else 0
-    c1.metric("Total Omzet", f"Rp {omzet:,}")
-    c2.metric("Total Biaya", f"Rp {beban:,}")
-    c3.metric("Profit Bersih", f"Rp {omzet - beban:,}")
-    
-    if not df_j.empty:
+    st.header("Catat Penjualan")
+    with st.form("form_jual", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        pilihan_makanan = col1.selectbox("Makanan", ["-"] + list(MAKANAN.keys()))
+        pilihan_minuman = col2.selectbox("Minuman", ["-"] + list(MINUMAN.keys()))
+        qty = st.number_input("Jumlah Porsi", min_value=1, value=1)
         st.write("---")
-        fig = px.bar(df_j.groupby("Menu")["Total"].sum().reset_index(), 
-                     x="Menu", y="Total", title="Penjualan per Menu",
-                     color_discrete_sequence=['#F6BC25'])
-        st.plotly_chart(fig, use_container_width=True)
+        nama_topping = st.text_input("Nama Topping (isi '-' jika tidak ada)")
+        harga_topping = st.number_input("Harga Topping (per porsi)", min_value=0, step=1000)
+        
+        if st.form_submit_button("Selesaikan Transaksi"):
+            item_dipilih = pilihan_makanan if pilihan_makanan != "-" else pilihan_minuman
+            harga_dasar = MAKANAN.get(pilihan_makanan, 0) if pilihan_makanan != "-" else MINUMAN.get(pilihan_minuman, 0)
+            
+            if item_dipilih != "-":
+                total_harga = (harga_dasar + harga_topping) * qty
+                catatan = f"{item_dipilih} + {nama_topping}" if nama_topping != "-" else item_dipilih
+                
+                # Menambah kolom Hari dan Tanggal
+                df = load_csv(FILE_JUAL, ["Hari", "Tanggal", "Menu", "Jumlah", "Total"])
+                new_data = pd.DataFrame([[get_hari_indo(), datetime.now().strftime("%Y-%m-%d"), catatan, qty, total_harga]], columns=df.columns)
+                pd.concat([df, new_data]).to_csv(FILE_JUAL, index=False)
+                st.success(f"✅ Berhasil dicatat: {catatan} x{qty} = Rp {total_harga:,}")
+            else:
+                st.error("Silakan pilih minimal satu menu!")
 
-# 4. EXCEL
+# --- 5. TAB PENGELUARAN ---
+with tab2:
+    st.header("Catat Uang Keluar (Belanja)")
+    with st.form("form_keluar", clear_on_submit=True):
+        item_beli = st.text_input("Nama Barang/Bahan")
+        col_q, col_p = st.columns(2)
+        qty_beli = col_q.number_input("Qty / Jumlah", min_value=1, value=1)
+        harga_satuan = col_p.number_input("Harga Satuan (Rp)", min_value=0, step=500)
+        
+        if st.form_submit_button("Catat Pengeluaran"):
+            total_keluar = qty_beli * harga_satuan
+            df = load_csv(FILE_KELUAR, ["Hari", "Tanggal", "Keterangan", "Total"])
+            new_data = pd.DataFrame([[get_hari_indo(), datetime.now().strftime("%Y-%m-%d"), f"{item_beli} (x{qty_beli})", total_keluar]], columns=df.columns)
+            pd.concat([df, new_data]).to_csv(FILE_KELUAR, index=False)
+            st.warning(f"⚠️ Pengeluaran {item_beli} x{qty_beli} tercatat sebesar Rp {total_keluar:,}")
+
+# --- 6. TAB LAPORAN ---
+with tab3:
+    st.header("Ringkasan Laporan")
+    df_j = load_csv(FILE_JUAL, ["Hari", "Tanggal", "Menu", "Jumlah", "Total"])
+    df_k = load_csv(FILE_KELUAR, ["Hari", "Tanggal", "Keterangan", "Total"])
+    
+    total_masuk = df_j['Total'].sum() if not df_j.empty else 0
+    total_keluar = df_k['Total'].sum() if not df_k.empty else 0
+    sisa_uang = (modal_awal + total_masuk) - total_keluar
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Omzet", f"Rp {total_masuk:,}")
+    col2.metric("Sisa Uang di Tangan", f"Rp {sisa_uang:,}")
+    col3.metric("Profit Bersih", f"Rp {total_masuk - total_keluar:,}")
+
+# --- 7. TAB EXCEL ---
 with tab4:
-    if st.button("Generate Laporan Excel"):
+    if st.button("Generate Master Excel"):
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             load_csv(FILE_JUAL, []).to_excel(writer, sheet_name='Data Penjualan', index=False)
             load_csv(FILE_KELUAR, []).to_excel(writer, sheet_name='Data Pengeluaran', index=False)
-        st.download_button("Klik untuk Unduh Laporan", data=output.getvalue(), file_name="Laporan_Keuangan_Pupis.xlsx")
+        st.download_button("📥 Download Laporan", data=output.getvalue(), file_name="Laporan_Pupis_Master.xlsx")
